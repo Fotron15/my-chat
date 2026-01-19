@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FLAP2TEXT ULTIMATE PRO</title>
+    <style>
+        :root {
+            --bg-color: #d1d7db; --sidebar-bg: white; --chat-bg: #efeae2;
+            --text-color: #000; --header-bg: #ededed; --msg-my: #dcf8c6;
+            --msg-their: white; --input-bg: #f0f0f0; --primary: #075e54;
+            --online: #25d366; --badge-bg: #ff3b30;
+            --call-bg: #2ecc71; --hangup-bg: #e74c3c;
+        }
+        [data-theme="dark"] {
+            --bg-color: #0b141a; --sidebar-bg: #111b21; --chat-bg: #0b141a;
+            --text-color: #e9edef; --header-bg: #202c33; --msg-my: #005c4b;
+            --msg-their: #202c33; --input-bg: #2a3942;
+        }
+
+        * { box-sizing: border-box; transition: background 0.2s; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; }
+
+        #sidebar, #main-chat { display: none; }
+
+        /* ЗВОНКИ */
+        #call-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 5000; display: none; flex-direction: column; justify-content: center; align-items: center; color: white; padding: 20px; text-align: center; }
+        .call-btn { width: 65px; height: 65px; border-radius: 50%; border: none; color: white; font-size: 24px; cursor: pointer; margin: 15px; display: flex; justify-content: center; align-items: center; }
+        .accept { background: var(--call-bg); }
+        .hangup { background: var(--hangup-bg); }
+
+        /* ИНДИКАТОР ГРОМКОСТИ */
+        .vol-container { width: 150px; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; margin: 15px 0; overflow: hidden; }
+        #vol-bar { width: 0%; height: 100%; background: var(--online); transition: width 0.1s; }
+
+        .mic-select { background: #333; color: white; border: 1px solid #555; padding: 8px; border-radius: 8px; width: 220px; margin-bottom: 10px; font-size: 14px; }
+        .mute-btn { background: rgba(255,255,255,0.1); border: 1px solid white; color: white; padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 14px; }
+        .mute-btn.active { background: var(--hangup-bg); border-color: var(--hangup-bg); }
+
+        /* ЧАТ */
+        .sidebar { width: 300px; background: var(--sidebar-bg); border-right: 1px solid rgba(0,0,0,0.1); flex-direction: column; z-index: 100; flex-shrink: 0; }
+        .main-chat { flex: 1; flex-direction: column; background: var(--chat-bg); position: relative; min-width: 0; }
+        .header { padding: 10px 15px; background: var(--header-bg); display: flex; align-items: center; gap: 12px; min-height: 60px; }
+        .avatar-container { position: relative; width: 45px; height: 45px; flex-shrink: 0; }
+        .avatar { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: #eee; cursor: pointer; }
+        .status-dot { position: absolute; bottom: 1px; right: 1px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--sidebar-bg); background: #ccc; }
+        .status-dot.online { background: var(--online); }
+
+        .friends-list { flex: 1; overflow-y: auto; }
+        .friend-item { padding: 12px; border-bottom: 1px solid rgba(0,0,0,0.05); display: flex; align-items: center; gap: 12px; cursor: pointer; }
+        .messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        .msg { padding: 8px 12px; border-radius: 8px; max-width: 75%; font-size: 14.5px; box-shadow: 0 1px 1px rgba(0,0,0,0.1); word-wrap: break-word; }
+        .my { align-self: flex-end; background: var(--msg-my); }
+        .their { align-self: flex-start; background: var(--msg-their); }
+        .msg img { max-width: 100%; border-radius: 5px; margin-top: 5px; display: block; }
+
+        .input-area { padding: 10px 15px; background: var(--header-bg); display: flex; gap: 10px; align-items: center; }
+        #msg-input { flex: 1; padding: 10px 15px; border-radius: 25px; border: none; background: var(--input-bg); color: var(--text-color); outline: none; }
+        #send-btn { background: var(--primary); color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; justify-content: center; align-items: center; }
+
+        .auth-overlay { position: fixed; inset: 0; background: var(--primary); display: flex; justify-content: center; align-items: center; z-index: 3000; }
+        .auth-box { background: white; padding: 25px; border-radius: 12px; text-align: center; color: black; width: 310px; }
+        .auth-box input { width: 100%; padding: 12px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; }
+
+        @media (max-width: 650px) {
+            .sidebar { position: fixed; left: -100%; height: 100%; width: 85%; transition: 0.3s; }
+            .sidebar.open { left: 0; }
+            #menu-btn { display: block !important; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="call-overlay">
+        <img id="call-avatar" style="width:110px; height:110px; border-radius:50%; border:3px solid white; margin-bottom:10px">
+        <h2 id="call-name" style="margin:0">...</h2>
+        <div id="call-status" style="opacity:0.8; margin-bottom:10px">Подключение...</div>
+        
+        <div class="vol-container"><div id="vol-bar"></div></div>
+        
+        <select id="mic-select" class="mic-select"></select>
+        <button id="btn-mute" class="mute-btn" onclick="toggleMute()">🎤 Микрофон: ВКЛ</button>
+
+        <div style="display: flex;">
+            <button id="btn-accept" class="call-btn accept" onclick="answerCall()">📞</button>
+            <button class="call-btn hangup" onclick="endCall(true)">✖</button>
+        </div>
+        <audio id="remote-audio" autoplay></audio>
+        <audio id="ringtone" src="https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3" loop></audio>
+    </div>
+
+    <div id="settings-modal" onclick="this.style.display='none'">
+        <div class="settings-box" onclick="event.stopPropagation()">
+            <button onclick="document.getElementById('avatar-upload').click()">Сменить фото</button>
+            <input type="file" id="avatar-upload" hidden accept="image/*" onchange="updateMyAvatar(this)">
+            <button onclick="toggleTheme()">Тема</button>
+            <button onclick="logout()" style="color:red">Выход</button>
+        </div>
+    </div>
+
+    <div id="auth-screen" class="auth-overlay">
+        <div class="auth-box" id="login-form">
+            <h2>FLAP2TEXT</h2>
+            <input type="text" id="login-id" placeholder="ID">
+            <input type="password" id="login-pass" placeholder="Пароль">
+            <button onclick="handleLogin()">Войти</button>
+            <p onclick="toggleAuth(true)">Регистрация</p>
+        </div>
+        <div class="auth-box" id="reg-form" style="display:none">
+            <h2>Регистрация</h2>
+            <input type="text" id="reg-name" placeholder="Имя">
+            <input type="password" id="reg-pass" placeholder="Пароль">
+            <button onclick="handleRegister()">Создать</button>
+            <p onclick="toggleAuth(false)">Назад</p>
+        </div>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        <div class="header" style="background:var(--primary); color:white">
+            <div class="avatar-container"><img id="my-avatar" class="avatar" onclick="document.getElementById('settings-modal').style.display='flex'"></div>
+            <div><b id="my-name">...</b><div id="my-id" style="font-size:11px; opacity:0.8"></div></div>
+        </div>
+        <div style="padding:10px; display:flex; gap:5px;">
+            <input type="text" id="friend-id-search" placeholder="ID друга..." style="flex:1; padding:8px; border-radius:20px; border:1px solid #ddd; outline:none">
+            <button onclick="addFriend()">+</button>
+        </div>
+        <div id="friends-list" class="friends-list"></div>
+    </div>
+
+    <div class="main-chat" id="main-chat">
+        <div class="header">
+            <button id="menu-btn" style="display:none; background:none; border:none; font-size:22px;" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+            <div id="chat-avatar-box" class="avatar-container" style="display:none"><img id="chat-avatar" class="avatar"></div>
+            <b id="chat-title">Выберите чат</b>
+            <button id="call-start-btn" onclick="startCall()" style="margin-left:auto; background:none; border:none; font-size:22px; cursor:pointer; display:none">📞</button>
+        </div>
+        <div id="chat-messages" class="messages"></div>
+        <div class="input-area">
+            <button onclick="document.getElementById('img-in').click()" style="background:none; border:none; font-size:20px;">🖼️</button>
+            <input type="file" id="img-in" hidden accept="image/*" onchange="sendImage(this)">
+            <input type="text" id="msg-input" placeholder="Сообщение..." onkeydown="if(event.key==='Enter') sendText()">
+            <button id="send-btn" onclick="sendText()">➤</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, push, onValue, get, update, remove, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const firebaseConfig = { databaseURL: "https://ind2-6b63d-default-rtdb.firebaseio.com/" };
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        let myUser = null, activeChatId = null, activeFriend = null;
+        let pc = null, localStream = null, isMuted = false;
+        let audioCtx, analyser, dataArray, animId;
+        const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        window.onload = () => {
+            const saved = localStorage.getItem('chat_session');
+            if (saved) { myUser = JSON.parse(saved); startApp(); }
+            else { document.getElementById('auth-screen').style.display = 'flex'; }
+            if(localStorage.getItem('theme')==='dark') document.body.setAttribute('data-theme', 'dark');
+        };
+
+        function startApp() {
+            document.getElementById('auth-screen').style.display = 'none';
+            document.getElementById('sidebar').style.display = 'flex';
+            document.getElementById('main-chat').style.display = 'flex';
+            set(ref(db, `users/${myUser.id}/status`), "online");
+            onDisconnect(ref(db, `users/${myUser.id}/status`)).set(serverTimestamp());
+            onValue(ref(db, `users/${myUser.id}`), snap => {
+                if(snap.exists()) {
+                    myUser = snap.val();
+                    document.getElementById('my-avatar').src = myUser.avatar || '';
+                    document.getElementById('my-name').textContent = myUser.name;
+                    document.getElementById('my-id').textContent = "ID: " + myUser.id;
+                }
+            });
+            loadFriends(); listenForIncoming();
+        }
+
+        // --- УПРАВЛЕНИЕ ЗВУКОМ ---
+        async function setupVoiceIndicator(stream) {
+            if (audioCtx) audioCtx.close();
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
+            const source = audioCtx.createMediaStreamSource(stream);
+            source.connect(analyser);
+            analyser.fftSize = 256;
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            function draw() {
+                animId = requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+                let sum = dataArray.reduce((a, b) => a + b, 0);
+                let vol = Math.min(100, (sum / dataArray.length) * 2.5);
+                document.getElementById('vol-bar').style.width = vol + "%";
+            }
+            draw();
+        }
+
+        async function updateMicList() {
+            const select = document.getElementById('mic-select');
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const mics = devices.filter(d => d.kind === 'audioinput');
+            select.innerHTML = mics.map(m => `<option value="${m.deviceId}">${m.label || 'Микрофон'}</option>`).join('');
+            select.onchange = async () => {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: select.value } } });
+                const newTrack = stream.getAudioTracks()[0];
+                if (pc) {
+                    const sender = pc.getSenders().find(s => s.track.kind === 'audio');
+                    sender.replaceTrack(newTrack);
+                }
+                localStream.getTracks().forEach(t => t.stop());
+                localStream = stream;
+                setupVoiceIndicator(stream);
+            };
+        }
+
+        window.toggleMute = () => {
+            isMuted = !isMuted;
+            localStream.getAudioTracks()[0].enabled = !isMuted;
+            const btn = document.getElementById('btn-mute');
+            btn.textContent = isMuted ? "🔇 Микрофон: ВЫКЛ" : "🎤 Микрофон: ВКЛ";
+            btn.classList.toggle('active', isMuted);
+        };
+
+        // --- ЗВОНКИ ---
+        function listenForIncoming() {
+            onValue(ref(db, `calls/${myUser.id}/offer`), async snap => {
+                if (snap.exists()) {
+                    const call = snap.val();
+                    if (call.from !== myUser.id) {
+                        activeFriend = { id: call.from, name: call.fromName, avatar: call.fromAvatar };
+                        showCallUI(call.fromName, call.fromAvatar, "Входящий...", true);
+                        document.getElementById('ringtone').play().catch(()=>{});
+                    }
+                } else if(!pc) closeCallUI();
+            });
+            onValue(ref(db, `calls/${myUser.id}`), snap => { if (!snap.exists() && pc) endCall(false); });
+        }
+
+        function showCallUI(name, avatar, status, showAccept) {
+            document.getElementById('call-overlay').style.display = 'flex';
+            document.getElementById('call-name').textContent = name;
+            document.getElementById('call-avatar').src = avatar;
+            document.getElementById('call-status').textContent = status;
+            document.getElementById('btn-accept').style.display = showAccept ? 'flex' : 'none';
+            updateMicList();
+        }
+
+        window.startCall = async () => {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                showCallUI(activeFriend.name, activeFriend.avatar, "Вызов...", false);
+                setupVoiceIndicator(localStream);
+                pc = new RTCPeerConnection(config);
+                localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+                pc.onicecandidate = e => { if(e.candidate) push(ref(db, `calls/${activeFriend.id}/candidates`), e.candidate.toJSON()); };
+                pc.ontrack = e => { document.getElementById('remote-audio').srcObject = e.streams[0]; };
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                await set(ref(db, `calls/${activeFriend.id}/offer`), { sdp: offer.sdp, type: offer.type, from: myUser.id, fromName: myUser.name, fromAvatar: myUser.avatar });
+                onValue(ref(db, `calls/${activeFriend.id}/answer`), async snap => {
+                    if (snap.exists() && pc && !pc.currentRemoteDescription) {
+                        document.getElementById('call-status').textContent = "В эфире";
+                        await pc.setRemoteDescription(new RTCSessionDescription(snap.val()));
+                    }
+                });
+            } catch (e) { alert("Микрофон недоступен!"); endCall(true); }
+        };
+
+        window.answerCall = async () => {
+            document.getElementById('ringtone').pause();
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                setupVoiceIndicator(localStream);
+                const offSnap = await get(ref(db, `calls/${myUser.id}/offer`));
+                pc = new RTCPeerConnection(config);
+                localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+                pc.ontrack = e => { document.getElementById('remote-audio').srcObject = e.streams[0]; };
+                await pc.setRemoteDescription(new RTCSessionDescription(offSnap.val()));
+                const ans = await pc.createAnswer();
+                await pc.setLocalDescription(ans);
+                await update(ref(db, `calls/${myUser.id}`), { answer: { sdp: ans.sdp, type: ans.type } });
+                document.getElementById('call-status').textContent = "В эфире";
+                document.getElementById('btn-accept').style.display = 'none';
+            } catch (e) { endCall(true); }
+        };
+
+        window.endCall = (notify = true) => {
+            if (notify) { remove(ref(db, `calls/${myUser.id}`)); if(activeFriend) remove(ref(db, `calls/${activeFriend.id}`)); }
+            if(pc) pc.close(); pc = null;
+            if(localStream) localStream.getTracks().forEach(t => t.stop());
+            cancelAnimationFrame(animId);
+            closeCallUI();
+        };
+
+        function closeCallUI() { document.getElementById('call-overlay').style.display = 'none'; document.getElementById('ringtone').pause(); }
+
+        // --- ЧАТ И ВЫХОД ---
+        window.logout = () => {
+            if (confirm("Выйти?")) {
+                set(ref(db, `users/${myUser.id}/status`), serverTimestamp()).then(() => {
+                    localStorage.clear();
+                    window.location.replace(window.location.pathname);
+                });
+            }
+        };
+        window.updateMyAvatar = (input) => {
+            const r = new FileReader();
+            r.onload = (e) => update(ref(db, `users/${myUser.id}`), { avatar: e.target.result });
+            r.readAsDataURL(input.files[0]);
+        };
+        window.toggleTheme = () => {
+            const isDark = document.body.hasAttribute('data-theme');
+            document.body.toggleAttribute('data-theme');
+            localStorage.setItem('theme', isDark ? 'light' : 'dark');
+        };
+        function loadFriends() {
+            onValue(ref(db, `friends/${myUser.id}`), snap => {
+                const list = document.getElementById('friends-list'); list.innerHTML = "";
+                if(snap.exists()){
+                    Object.keys(snap.val()).forEach(fId => {
+                        onValue(ref(db, `users/${fId}`), uSnap => { if(uSnap.exists()) updateFriendUI(uSnap.val()); });
+                    });
+                }
+            });
+        }
+        function updateFriendUI(u) {
+            let div = document.getElementById('fi-' + u.id);
+            if (!div) { div = document.createElement('div'); div.id = 'fi-' + u.id; div.className = 'friend-item'; document.getElementById('friends-list').appendChild(div); }
+            div.innerHTML = `<div class="avatar-container"><img src="${u.avatar}" class="avatar"><div class="status-dot ${u.status === 'online'?'online':''}"></div></div><div><b>${u.name}</b></div>`;
+            div.onclick = () => openChat(u);
+        }
+        function openChat(f) {
+            activeFriend = f; activeChatId = [myUser.id, f.id].sort().join("_");
+            document.getElementById('chat-avatar-box').style.display = 'block';
+            document.getElementById('chat-avatar').src = f.avatar;
+            document.getElementById('chat-title').textContent = f.name;
+            document.getElementById('call-start-btn').style.display = 'block';
+            onValue(ref(db, `chats/${activeChatId}`), snap => {
+                const cont = document.getElementById('chat-messages'); cont.innerHTML = "";
+                if(snap.exists()) Object.values(snap.val()).forEach(m => {
+                    const d = document.createElement('div'); d.className = `msg ${m.sender === myUser.id ? 'my' : 'their'}`;
+                    if(m.type === 'img') d.innerHTML = `<img src="${m.data}">`; else d.textContent = m.data;
+                    cont.appendChild(d);
+                });
+                cont.scrollTop = cont.scrollHeight;
+            });
+        }
+        window.sendText = () => {
+            const inp = document.getElementById('msg-input');
+            if(inp.value.trim()) push(ref(db, `chats/${activeChatId}`), { sender: myUser.id, data: inp.value.trim(), type: 'text' });
+            inp.value = "";
+        };
+        window.sendImage = (i) => {
+            const r = new FileReader();
+            r.onload = (e) => push(ref(db, `chats/${activeChatId}`), { sender: myUser.id, data: e.target.result, type: 'img' });
+            r.readAsDataURL(i.files[0]);
+        };
+        window.handleLogin = async () => {
+            const id = document.getElementById('login-id').value.toUpperCase();
+            const p = document.getElementById('login-pass').value;
+            const s = await get(ref(db, 'users/' + id));
+            if(s.exists() && s.val().password === p) { localStorage.setItem('chat_session', JSON.stringify(s.val())); location.reload(); }
+            else alert("Ошибка");
+        };
+        window.handleRegister = async () => {
+            const n = document.getElementById('reg-name').value;
+            const p = document.getElementById('reg-pass').value;
+            const id = Math.random().toString(36).substr(2,5).toUpperCase();
+            const u = {id, name:n, password:p, avatar:`https://api.dicebear.com/7.x/bottts/svg?seed=${id}`, status: "online"};
+            await set(ref(db, `users/${id}`), u); localStorage.setItem('chat_session', JSON.stringify(u)); location.reload();
+        };
+        window.toggleAuth = (r) => { document.getElementById('login-form').style.display = r?'none':'block'; document.getElementById('reg-form').style.display = r?'block':'none'; };
+        window.addFriend = () => {
+            const id = document.getElementById('friend-id-search').value.toUpperCase();
+            if(id) set(ref(db, `friends/${myUser.id}/${id}`), {id});
+            document.getElementById('friend-id-search').value = "";
+        };
+    </script>
+</body>
+</html>
