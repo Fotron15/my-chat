@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FLAP2TEXT GROUPS V2</title>
+    <style>
+        :root {
+            --bg-color: #d1d7db; --sidebar-bg: white; --chat-bg: #efeae2;
+            --text-color: #000; --header-bg: #ededed; --msg-my: #dcf8c6;
+            --msg-their: white; --input-bg: #f0f0f0; --primary: #075e54;
+            --online: #25d366; --hangup-bg: #e74c3c;
+        }
+        [data-theme="dark"] {
+            --bg-color: #0b141a; --sidebar-bg: #111b21; --chat-bg: #0b141a;
+            --text-color: #e9edef; --header-bg: #202c33; --msg-my: #005c4b;
+            --msg-their: #202c33; --input-bg: #2a3942;
+        }
+        * { box-sizing: border-box; transition: background 0.2s; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        /* ИНТЕРФЕЙС */
+        .sidebar { width: 300px; background: var(--sidebar-bg); border-right: 1px solid #ddd; display: flex; flex-direction: column; }
+        .main-chat { flex: 1; display: flex; flex-direction: column; background: var(--chat-bg); position: relative; }
+        .header { padding: 10px 15px; background: var(--header-bg); display: flex; align-items: center; gap: 10px; min-height: 60px; cursor: pointer; }
+        .messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        .msg { padding: 8px 12px; border-radius: 8px; max-width: 80%; font-size: 15px; box-shadow: 0 1px 1px rgba(0,0,0,0.1); }
+        .msg-sender { font-size: 11px; font-weight: bold; margin-bottom: 3px; color: var(--primary); }
+        .my { align-self: flex-end; background: var(--msg-my); }
+        .their { align-self: flex-start; background: var(--msg-their); }
+        .msg img, .msg video { max-width: 100%; border-radius: 5px; margin-top: 5px; display: block; }
+        
+        .input-area { padding: 10px; background: var(--header-bg); display: flex; gap: 8px; align-items: center; }
+        #msg-input { flex: 1; padding: 10px; border-radius: 20px; border: none; background: var(--input-bg); outline: none; }
+        
+        /* МОДАЛКИ */
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 6000; display: none; justify-content: center; align-items: center; padding: 20px; }
+        .modal-box { background: var(--sidebar-bg); padding: 20px; border-radius: 12px; width: 100%; max-width: 320px; text-align: center; }
+        .modal-box input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; background: var(--input-bg); color: var(--text-color); }
+        .modal-box button { width: 100%; padding: 10px; margin-top: 5px; border: none; border-radius: 5px; background: var(--primary); color: white; cursor: pointer; }
+
+        .avatar { width: 45px; height: 45px; border-radius: 50%; object-fit: cover; background: #ccc; }
+        .list-item { padding: 10px; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer; display: flex; align-items: center; gap: 10px; }
+        .section-title { padding: 5px 15px; background: rgba(0,0,0,0.05); font-size: 11px; font-weight: bold; }
+
+        @media (max-width: 600px) { .sidebar { position: absolute; left: -100%; z-index: 10; height: 100%; transition: 0.3s; } .sidebar.open { left: 0; width: 85%; } }
+    </style>
+</head>
+<body>
+
+    <div id="group-settings-modal" class="modal" onclick="this.style.display='none'">
+        <div class="modal-box" onclick="event.stopPropagation()">
+            <h3>Настройки группы</h3>
+            <img id="group-set-img" class="avatar" style="width:80px; height:80px; margin-bottom:10px" onclick="document.getElementById('group-img-upload').click()">
+            <input type="file" id="group-img-upload" hidden accept="image/*" onchange="updateGroupAvatar(this)">
+            <input type="text" id="group-set-title" placeholder="Название группы">
+            <button onclick="saveGroupName()">Сохранить название</button>
+            <hr style="margin: 15px 0; opacity: 0.3;">
+            <input type="text" id="group-add-id" placeholder="ID друга">
+            <button onclick="inviteToGroup()" style="background:var(--online)">Добавить участника</button>
+        </div>
+    </div>
+
+    <div id="auth-screen" class="modal" style="display:flex; background:var(--primary)">
+        <div class="modal-box">
+            <h2 style="color:black">FLAP2TEXT</h2>
+            <input type="text" id="login-id" placeholder="Ваш ID">
+            <input type="password" id="login-pass" placeholder="Пароль">
+            <button onclick="handleLogin()">Войти</button>
+            <p onclick="handleRegister()" style="cursor:pointer; font-size:13px; margin-top:10px; color:var(--primary)">Нет аккаунта? Создать</p>
+        </div>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        <div class="header" style="background:var(--primary); color:white; cursor: default;">
+            <img id="my-avatar" class="avatar">
+            <b id="my-name">...</b>
+            <button onclick="createNewGroup()" style="margin-left:auto; background:none; border:none; color:white; font-size:20px; cursor:pointer">+</button>
+        </div>
+        <div class="section-title">ГРУППЫ</div>
+        <div id="groups-list"></div>
+        <div class="section-title">ЧАТЫ</div>
+        <div id="friends-list" style="overflow-y:auto; flex:1"></div>
+    </div>
+
+    <div class="main-chat">
+        <div class="header" onclick="openGroupSettings()">
+            <button onclick="event.stopPropagation(); document.getElementById('sidebar').classList.toggle('open')" style="background:none; border:none; font-size:20px">☰</button>
+            <img id="chat-avatar" class="avatar" style="width:40px; height:40px;">
+            <b id="chat-title">Выберите чат</b>
+        </div>
+        <div id="chat-messages" class="messages"></div>
+        <div class="input-area">
+            <button onclick="document.getElementById('img-in').click()">🖼️</button>
+            <button onclick="document.getElementById('vid-in').click()">🎥</button>
+            <input type="file" id="img-in" hidden accept="image/*" onchange="sendMedia(this, 'img')">
+            <input type="file" id="vid-in" hidden accept="video/*" onchange="sendMedia(this, 'video')">
+            <input type="text" id="msg-input" placeholder="Сообщение..." onkeydown="if(event.key==='Enter') sendText()">
+            <button onclick="sendText()">➤</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, push, onValue, get, update, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const firebaseConfig = { databaseURL: "https://ind2-6b63d-default-rtdb.firebaseio.com/" };
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        let myUser = null, activeChatId = null, activeGroup = null, isGroup = false;
+        let chatUnsubscribe = null;
+
+        window.onload = () => {
+            const saved = localStorage.getItem('chat_session');
+            if(saved) { myUser = JSON.parse(saved); startApp(); }
+        };
+
+        function startApp() {
+            document.getElementById('auth-screen').style.display = 'none';
+            onValue(ref(db, `users/${myUser.id}`), s => {
+                if(s.exists()) {
+                    myUser = s.val();
+                    document.getElementById('my-avatar').src = myUser.avatar;
+                    document.getElementById('my-name').textContent = myUser.name;
+                }
+            });
+            loadFriends();
+            loadGroups();
+        }
+
+        window.handleLogin = async () => {
+            const id = document.getElementById('login-id').value.toUpperCase().trim();
+            const pass = document.getElementById('login-pass').value;
+            const s = await get(ref(db, `users/${id}`));
+            if(s.exists() && s.val().password === pass) {
+                localStorage.setItem('chat_session', JSON.stringify(s.val()));
+                location.reload();
+            } else alert("Неверный ID или пароль");
+        };
+
+        window.handleRegister = async () => {
+            const name = prompt("Ваше имя:");
+            const pass = prompt("Пароль:");
+            if(!name || !pass) return;
+            const id = Math.random().toString(36).substr(2,5).toUpperCase();
+            const u = { id, name, password: pass, avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${id}` };
+            await set(ref(db, `users/${id}`), u);
+            localStorage.setItem('chat_session', JSON.stringify(u));
+            location.reload();
+        };
+
+        // --- ЛОГИКА ГРУПП ---
+        window.createNewGroup = async () => {
+            const title = prompt("Название группы:");
+            if(!title) return;
+            const gid = "GRP_" + Date.now();
+            const gData = { gid, title, avatar: `https://api.dicebear.com/7.x/identicon/svg?seed=${gid}`, creator: myUser.id };
+            await set(ref(db, `groups/${gid}`), gData);
+            await set(ref(db, `groups/${gid}/members/${myUser.id}`), true);
+            await set(ref(db, `userGroups/${myUser.id}/${gid}`), true);
+        };
+
+        function loadGroups() {
+            onValue(ref(db, `userGroups/${myUser.id}`), snap => {
+                const list = document.getElementById('groups-list'); list.innerHTML = "";
+                if(snap.exists()) Object.keys(snap.val()).forEach(gid => {
+                    onValue(ref(db, `groups/${gid}`), gs => {
+                        const g = gs.val(); if(!g) return;
+                        let div = document.getElementById('li-' + g.gid);
+                        if(!div) {
+                            div = document.createElement('div'); div.id = 'li-' + g.gid;
+                            div.className = "list-item"; list.appendChild(div);
+                        }
+                        div.innerHTML = `<img src="${g.avatar}" class="avatar"><b>${g.title}</b>`;
+                        div.onclick = () => openChat(g, true);
+                    });
+                });
+            });
+        }
+
+        window.openGroupSettings = () => {
+            if(!isGroup || !activeGroup) return;
+            document.getElementById('group-settings-modal').style.display = 'flex';
+            document.getElementById('group-set-img').src = activeGroup.avatar;
+            document.getElementById('group-set-title').value = activeGroup.title;
+        };
+
+        window.saveGroupName = () => {
+            const newT = document.getElementById('group-set-title').value;
+            update(ref(db, `groups/${activeGroup.gid}`), { title: newT });
+            document.getElementById('group-settings-modal').style.display = 'none';
+        };
+
+        window.updateGroupAvatar = (i) => {
+            const reader = new FileReader();
+            reader.onload = (e) => update(ref(db, `groups/${activeGroup.gid}`), { avatar: e.target.result });
+            reader.readAsDataURL(i.files[0]);
+        };
+
+        window.inviteToGroup = async () => {
+            const id = document.getElementById('group-add-id').value.toUpperCase().trim();
+            if(!id) return;
+            const s = await get(ref(db, `users/${id}`));
+            if(s.exists()) {
+                await set(ref(db, `groups/${activeGroup.gid}/members/${id}`), true);
+                await set(ref(db, `userGroups/${id}/${activeGroup.gid}`), true);
+                alert("Добавлен!");
+                document.getElementById('group-add-id').value = "";
+            } else alert("Пользователь не найден");
+        };
+
+        // --- ЛОГИКА ЧАТА ---
+        function loadFriends() {
+            onValue(ref(db, `friends/${myUser.id}`), snap => {
+                const list = document.getElementById('friends-list'); list.innerHTML = "";
+                if(snap.exists()) Object.keys(snap.val()).forEach(fid => {
+                    get(ref(db, `users/${fid}`)).then(us => {
+                        const u = us.val();
+                        const div = document.createElement('div'); div.className = "list-item";
+                        div.innerHTML = `<img src="${u.avatar}" class="avatar"><b>${u.name}</b>`;
+                        div.onclick = () => openChat(u, false);
+                        list.appendChild(div);
+                    });
+                });
+            });
+        }
+
+        function openChat(target, groupMode) {
+            if(chatUnsubscribe) chatUnsubscribe();
+            isGroup = groupMode;
+            activeGroup = isGroup ? target : null;
+            activeChatId = isGroup ? target.gid : [myUser.id, target.id].sort().join("_");
+            
+            document.getElementById('chat-title').textContent = isGroup ? target.title : target.name;
+            document.getElementById('chat-avatar').src = target.avatar;
+            document.getElementById('sidebar').classList.remove('open');
+
+            const path = isGroup ? `groupChats/${activeChatId}` : `chats/${activeChatId}`;
+            chatUnsubscribe = onValue(ref(db, path), snap => {
+                const cont = document.getElementById('chat-messages'); cont.innerHTML = "";
+                if(snap.exists()) Object.values(snap.val()).forEach(m => {
+                    const d = document.createElement('div');
+                    d.className = `msg ${m.sid === myUser.id ? 'my' : 'their'}`;
+                    let content = isGroup && m.sid !== myUser.id ? `<div class="msg-sender">${m.sname}</div>` : "";
+                    if(m.type === 'video') content += `<video src="${m.data}" controls></video>`;
+                    else if(m.type === 'img') content += `<img src="${m.data}">`;
+                    else content += `<div>${m.data}</div>`;
+                    d.innerHTML = content;
+                    cont.appendChild(d);
+                });
+                cont.scrollTop = cont.scrollHeight;
+            });
+        }
+
+        window.sendText = () => {
+            const inp = document.getElementById('msg-input');
+            if(!inp.value.trim() || !activeChatId) return;
+            const path = isGroup ? `groupChats/${activeChatId}` : `chats/${activeChatId}`;
+            push(ref(db, path), { sid: myUser.id, sname: myUser.name, data: inp.value, type: 'text' });
+            inp.value = "";
+        };
+
+        window.sendMedia = (input, type) => {
+            const file = input.files[0]; if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const path = isGroup ? `groupChats/${activeChatId}` : `chats/${activeChatId}`;
+                push(ref(db, path), { sid: myUser.id, sname: myUser.name, data: e.target.result, type: type });
+            };
+            reader.readAsDataURL(file);
+        };
+    </script>
+</body>
+</html>
