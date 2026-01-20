@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FLAP2TEXT PRO CALLS</title>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #d1d7db; --sidebar-bg: #ffffff; --chat-bg: #efeae2;
+            --text-color: #000000; --header-bg: #ededed; --msg-my: #dcf8c6;
+            --msg-their: #ffffff; --input-bg: #f0f0f0; --primary: #075e54;
+            --online: #25d366; --hangup: #e74c3c; --fav-color: #3498db;
+        }
+        * { box-sizing: border-box; font-family: sans-serif; }
+        body { margin: 0; display: flex; height: 100vh; background: var(--bg-color); overflow: hidden; }
+        
+        /* Общие модалки */
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; display: none; justify-content: center; align-items: center; padding: 20px; }
+        .modal-box { background: white; padding: 25px; border-radius: 15px; width: 100%; max-width: 380px; text-align: center; }
+        .modal-box input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        .modal-box button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 8px; font-weight: bold; }
+        
+        /* Окно звонка */
+        .call-screen { position: fixed; inset: 0; background: var(--primary); color: white; z-index: 2000; display: none; flex-direction: column; align-items: center; justify-content: space-around; padding: 50px 20px; }
+        .call-avatar { width: 150px; height: 150px; border-radius: 50%; border: 4px solid rgba(255,255,255,0.3); object-fit: cover; }
+        .call-btns { display: flex; gap: 40px; }
+        .call-btn { width: 70px; height: 70px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .accept { background: var(--online); }
+        .decline { background: var(--hangup); }
+        .call-btn svg { width: 35px; fill: white; }
+
+        /* Интерфейс чата */
+        .sidebar { width: 300px; background: var(--sidebar-bg); display: flex; flex-direction: column; border-right: 1px solid #ddd; flex-shrink: 0; }
+        .header { padding: 10px 15px; background: var(--header-bg); display: flex; align-items: center; gap: 10px; min-height: 60px; cursor: pointer; }
+        .avatar { width: 45px !important; height: 45px !important; border-radius: 50%; object-fit: cover; }
+        .list-container { flex: 1; overflow-y: auto; }
+        .list-item { padding: 12px; display: flex; align-items: center; gap: 12px; cursor: pointer; border-bottom: 1px solid #f2f2f2; }
+        .section-title { padding: 8px 15px; background: #f0f2f5; font-size: 11px; font-weight: bold; color: #666; }
+
+        .main-chat { flex: 1; display: flex; flex-direction: column; background: var(--chat-bg); min-width: 0; }
+        .messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        .msg { padding: 8px 12px; border-radius: 8px; max-width: 85%; font-size: 15px; box-shadow: 0 1px 1px rgba(0,0,0,0.1); word-wrap: break-word; }
+        .my { align-self: flex-end; background: var(--msg-my); }
+        .their { align-self: flex-start; background: var(--msg-their); }
+
+        .input-area { padding: 10px; background: var(--header-bg); display: flex; align-items: center; gap: 10px; }
+        #msg-input { flex: 1; padding: 10px 15px; border-radius: 20px; border: none; }
+        .icon-btn { background: none; border: none; cursor: pointer; }
+        .icon-btn svg { width: 24px; fill: #54656f; }
+
+        @media (max-width: 600px) { .sidebar { position: absolute; left: -100%; z-index: 500; width: 85%; height: 100%; transition: 0.3s; } .sidebar.open { left: 0; } }
+    </style>
+</head>
+<body>
+
+    <div id="call-screen" class="call-screen">
+        <h2 id="call-status">Звонок...</h2>
+        <img id="call-img" class="call-avatar" src="">
+        <h1 id="call-name">Имя</h1>
+        <div class="call-btns">
+            <button id="btn-accept" class="call-btn accept" onclick="acceptCall()">
+                <svg viewBox="0 0 24 24"><path d="M20 15.5c-1.2 0-2.4-.2-3.5-.6-.3-.1-.7 0-1 .2l-2.2 2.2c-2.8-1.4-5.1-3.8-6.6-6.6l2.2-2.2c.3-.3.4-.7.2-1-.3-1.1-.5-2.3-.5-3.5 0-.6-.4-1-1-1H4c-.6 0-1 .4-1 1 0 9.4 7.6 17 17 17 .6 0 1-.4 1-1v-3.5c0-.6-.4-1-1-1z"/></svg>
+            </button>
+            <button class="call-btn decline" onclick="endCall()">
+                <svg viewBox="0 0 24 24"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.994.994 0 010-1.41c2.82-2.82 6.71-4.57 11.71-4.57s8.89 1.75 11.71 4.58a.994.994 0 010 1.41l-2.48 2.48c-.18.19-.44.3-.72.3-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <div id="auth-screen" class="modal" style="display:none; background:var(--primary)">
+        <div class="modal-box">
+            <h2>FLAP2TEXT</h2>
+            <div id="login-fields">
+                <input type="text" id="login-id" placeholder="ID">
+                <input type="password" id="login-pass" placeholder="Пароль">
+                <button onclick="handleLoginStep1()">Войти</button>
+                <button onclick="showReg()" style="background:none; color:var(--primary); border:1px solid var(--primary)">Регистрация</button>
+            </div>
+            <div id="otp-fields" style="display:none">
+                <p>Код подтверждения на Email</p>
+                <input type="text" id="otp-code" placeholder="Код">
+                <button onclick="handleLoginStep2()">Подтвердить</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="reg-screen" class="modal">
+        <div class="modal-box">
+            <h2>Регистрация</h2>
+            <input type="text" id="reg-name" placeholder="Имя">
+            <input type="email" id="reg-email" placeholder="Email">
+            <input type="password" id="reg-pass" placeholder="Пароль">
+            <button onclick="handleRegister()">Создать</button>
+            <button onclick="location.reload()" style="background:gray">Назад</button>
+        </div>
+    </div>
+
+    <div id="settings-modal" class="modal" onclick="this.style.display='none'">
+        <div class="modal-box" onclick="event.stopPropagation()">
+            <h3 id="modal-title">Настройки</h3>
+            <img id="modal-img" class="avatar" style="width:80px !important; height:80px !important; margin: 0 auto 10px; display: block;">
+            <div id="group-mgmt" style="display:none">
+                <input type="text" id="member-id-input" placeholder="ID участника">
+                <button onclick="addMemberToGroup()">Добавить</button>
+                <div id="members-list-body" style="text-align:left; font-size:14px; margin-top:10px;"></div>
+            </div>
+            <button onclick="logout()" style="background:var(--hangup); margin-top:20px;">Выйти</button>
+        </div>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        <div class="header" style="background:var(--primary); color:white" onclick="openMyProfile()">
+            <img id="my-avatar" class="avatar">
+            <b id="my-name" style="flex:1; margin-left:10px">...</b>
+            <button class="icon-btn" onclick="event.stopPropagation(); createGroup()">
+                <svg viewBox="0 0 24 24" style="fill:white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            </button>
+        </div>
+        <div class="list-container">
+            <div class="section-title">ИЗБРАННОЕ</div>
+            <div class="list-item" onclick="openFavorites()"><b>⭐ Избранное</b></div>
+            <div class="section-title">ГРУППЫ</div>
+            <div id="groups-list"></div>
+            <div class="section-title">КОНТАКТЫ</div>
+            <div id="friends-list"></div>
+        </div>
+    </div>
+
+    <div class="main-chat">
+        <div class="header" id="chat-header" onclick="openChatSettings()">
+            <button class="icon-btn" onclick="event.stopPropagation(); document.getElementById('sidebar').classList.toggle('open')">
+                <svg viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+            </button>
+            <img id="chat-avatar" class="avatar" style="display:none; margin-left:10px">
+            <b id="chat-title" style="margin-left:10px">Выберите чат</b>
+            <button id="call-btn" class="icon-btn" style="margin-left:auto; display:none;" onclick="event.stopPropagation(); startCall()">
+                <svg viewBox="0 0 24 24"><path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 00-1.01.24l-2.2 2.2a15.045 15.045 0 01-6.59-6.59l2.2-2.21a.96.96 0 00.25-1.01c-.36-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19c-.54 0-1 .45-1 .99 0 9.39 7.61 17 17 17 .54 0 .99-.45.99-1v-3.57c0-.54-.45-.99-.99-.99z"/></svg>
+            </button>
+        </div>
+        <div id="chat-messages" class="messages"></div>
+        <div class="input-area">
+            <input type="text" id="msg-input" placeholder="Сообщение..." onkeydown="if(event.key==='Enter') sendText()">
+            <button class="icon-btn" onclick="sendText()">
+                <svg viewBox="0 0 24 24" style="fill:var(--primary)"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, push, onValue, get, update, serverTimestamp, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const firebaseConfig = { databaseURL: "https://ind2-6b63d-default-rtdb.firebaseio.com/" };
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        emailjs.init("zfzg42iW3itGfUsOz");
+
+        let myUser = null, activeChatId = null, activeTarget = null, isGroup = false, isFav = false;
+        let tempUser = null, generatedOTP = null;
+
+        window.onload = () => {
+            const saved = localStorage.getItem('chat_session');
+            if(saved) { myUser = JSON.parse(saved); startApp(); } 
+            else { document.getElementById('auth-screen').style.display = 'flex'; }
+        };
+
+        // --- ЛОГИКА ЗВОНКОВ (ИСПРАВЛЕНО) ---
+        window.startCall = async () => {
+            if(!activeTarget || isGroup) return;
+            const callId = [myUser.id, activeTarget.id].sort().join("_");
+            await set(ref(db, `calls/${activeTarget.id}`), {
+                from: myUser.id,
+                fromName: myUser.name,
+                fromAvatar: myUser.avatar,
+                status: 'calling'
+            });
+            showCallScreen(activeTarget.name, activeTarget.avatar, 'Исходящий вызов...', false);
+            listenForCallStatus(activeTarget.id);
+        };
+
+        function listenForCalls() {
+            onValue(ref(db, `calls/${myUser.id}`), snap => {
+                if(snap.exists()) {
+                    const call = snap.val();
+                    if(call.status === 'calling') {
+                        showCallScreen(call.fromName, call.fromAvatar, 'Входящий вызов...', true);
+                    } else if(call.status === 'accepted') {
+                        document.getElementById('call-status').textContent = 'Разговор...';
+                    } else {
+                        document.getElementById('call-screen').style.display = 'none';
+                    }
+                } else {
+                    document.getElementById('call-screen').style.display = 'none';
+                }
+            });
+        }
+
+        function listenForCallStatus(targetId) {
+            onValue(ref(db, `calls/${targetId}`), snap => {
+                if(!snap.exists()) { document.getElementById('call-screen').style.display = 'none'; }
+                else if(snap.val().status === 'accepted') {
+                    document.getElementById('call-status').textContent = 'Разговор...';
+                }
+            });
+        }
+
+        window.acceptCall = async () => {
+            await update(ref(db, `calls/${myUser.id}`), { status: 'accepted' });
+            document.getElementById('btn-accept').style.display = 'none';
+        };
+
+        window.endCall = async () => {
+            const targetId = isGroup ? null : (activeTarget ? activeTarget.id : null);
+            await remove(ref(db, `calls/${myUser.id}`));
+            if(activeTarget) await remove(ref(db, `calls/${activeTarget.id}`));
+            document.getElementById('call-screen').style.display = 'none';
+        };
+
+        function showCallScreen(name, avatar, status, incoming) {
+            const screen = document.getElementById('call-screen');
+            screen.style.display = 'flex';
+            document.getElementById('call-name').textContent = name;
+            document.getElementById('call-img').src = avatar;
+            document.getElementById('call-status').textContent = status;
+            document.getElementById('btn-accept').style.display = incoming ? 'flex' : 'none';
+        }
+
+        // --- ОСТАЛЬНАЯ ЛОГИКА (ВХОД, ЧАТ) ---
+        window.handleLoginStep1 = async () => {
+            const id = document.getElementById('login-id').value.toUpperCase();
+            const pass = document.getElementById('login-pass').value;
+            const s = await get(ref(db, `users/${id}`));
+            if(s.exists() && s.val().password === pass) {
+                tempUser = s.val();
+                if(tempUser.email) {
+                    generatedOTP = Math.floor(100000 + Math.random() * 900000).toString();
+                    emailjs.send("service_7qhltbn", "template_g7i5q28", { to_email: tempUser.email, otp_code: generatedOTP });
+                    document.getElementById('login-fields').style.display='none'; document.getElementById('otp-fields').style.display='block';
+                } else loginOk(tempUser);
+            } else alert("Ошибка!");
+        };
+
+        window.handleLoginStep2 = () => {
+            if(document.getElementById('otp-code').value === generatedOTP) loginOk(tempUser);
+            else alert("Код неверный");
+        };
+
+        function loginOk(u) { myUser = u; localStorage.setItem('chat_session', JSON.stringify(u)); location.reload(); }
+
+        function startApp() {
+            document.getElementById('auth-screen').style.display='none';
+            document.getElementById('my-avatar').src = myUser.avatar;
+            document.getElementById('my-name').textContent = myUser.name;
+            loadFriends(); loadGroups(); listenForCalls();
+        }
+
+        window.openChat = (target, group) => {
+            isGroup = group; isFav = false; activeTarget = target;
+            activeChatId = isGroup ? target.gid : [myUser.id, target.id].sort().join("_");
+            document.getElementById('chat-title').textContent = isGroup ? target.title : target.name;
+            document.getElementById('chat-avatar').src = target.avatar;
+            document.getElementById('chat-avatar').style.display = 'block';
+            document.getElementById('call-btn').style.display = isGroup ? 'none' : 'block';
+            loadMessages(isGroup ? `groupMessages/${activeChatId}` : `privateMessages/${activeChatId}`);
+        };
+
+        function loadMessages(path) {
+            onValue(ref(db, path), snap => {
+                const cont = document.getElementById('chat-messages'); cont.innerHTML = "";
+                if(snap.exists()) Object.values(snap.val()).forEach(m => {
+                    const d = document.createElement('div');
+                    d.className = `msg ${m.sid === myUser.id ? 'my' : 'their'}`;
+                    d.innerHTML = `<div>${m.data}</div>`;
+                    cont.appendChild(d);
+                });
+                cont.scrollTop = cont.scrollHeight;
+            });
+        }
+
+        window.sendText = () => {
+            const val = document.getElementById('msg-input').value.trim();
+            if(!val) return;
+            const path = isFav ? `savedMessages/${myUser.id}` : (isGroup ? `groupMessages/${activeChatId}` : `privateMessages/${activeChatId}`);
+            push(ref(db, path), { sid: myUser.id, sname: myUser.name, data: val, time: serverTimestamp() });
+            document.getElementById('msg-input').value = "";
+        };
+
+        function loadFriends() {
+            onValue(ref(db, `users`), s => {
+                const l = document.getElementById('friends-list'); l.innerHTML = "";
+                if(s.exists()) Object.values(s.val()).forEach(u => {
+                    if(u.id !== myUser.id) {
+                        const d = document.createElement('div'); d.className="list-item";
+                        d.innerHTML = `<img src="${u.avatar}" class="avatar"><b>${u.name}</b>`;
+                        d.onclick = () => openChat(u, false); l.appendChild(d);
+                    }
+                });
+            });
+        }
+
+        function loadGroups() {
+            onValue(ref(db, `userGroups/${myUser.id}`), s => {
+                const l = document.getElementById('groups-list'); l.innerHTML = "";
+                if(s.exists()) Object.keys(s.val()).forEach(gid => {
+                    get(ref(db, `groups/${gid}`)).then(gs => {
+                        const g = gs.val();
+                        const d = document.createElement('div'); d.className="list-item";
+                        d.innerHTML = `<img src="${g.avatar}" class="avatar"><b>${g.title}</b>`;
+                        d.onclick = () => openChat(g, true); l.appendChild(d);
+                    });
+                });
+            });
+        }
+
+        window.createGroup = async () => {
+            const n = prompt("Название группы:"); if(!n) return;
+            const gid = "GRP_" + Date.now();
+            await set(ref(db, `groups/${gid}`), { gid, title: n, owner: myUser.id, avatar: `https://api.dicebear.com/7.x/identicon/svg?seed=${gid}`, members: {[myUser.id]:true} });
+            await set(ref(db, `userGroups/${myUser.id}/${gid}`), true);
+        };
+
+        window.openMyProfile = () => { document.getElementById('settings-modal').style.display='flex'; document.getElementById('modal-img').src=myUser.avatar; };
+        window.logout = () => { localStorage.removeItem('chat_session'); location.reload(); };
+    </script>
+</body>
+</html>
