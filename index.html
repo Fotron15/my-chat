@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Pro WebIDE: С нумерацией и Превью</title>
+<style>
+/* --- ОСНОВНЫЕ СТИЛИ --- */
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#1e1e2f; color:#eee; margin:0; padding:0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+* { box-sizing: border-box; outline: none; }
+
+/* --- NAVBAR --- */
+.navbar { background:#28293d; height: 50px; display: flex; align-items: center; padding: 0 15px; border-bottom: 1px solid #111; justify-content: space-between; z-index: 10; }
+.brand { font-weight: bold; font-size: 18px; color: #61dafb; display: flex; align-items: center; gap: 10px; }
+.nav-controls { display: flex; gap: 8px; }
+
+/* КНОПКИ */
+button { border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; transition: 0.2s; display: flex; align-items: center; gap: 5px; }
+.btn-primary { background: #007acc; color: white; }
+.btn-primary:hover { background: #005f9e; }
+.btn-success { background: #4caf50; color: white; }
+.btn-success:hover { background: #3d8b40; }
+.btn-danger { background: #f44336; color: white; }
+.btn-dark { background: #444; color: #ccc; }
+.btn-toggle.active { background: #dcdcaa; color: #000; } /* Цвет кнопки включения превью */
+
+/* --- ЭКРАН ВЫБОРА ПРОЕКТОВ --- */
+#project-screen { flex-grow: 1; padding: 40px; text-align: center; display: flex; flex-direction: column; align-items: center; overflow-y: auto; }
+.project-list { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 30px; justify-content: center; }
+.project-card { background: #2c2c3e; width: 160px; height: 130px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; border: 2px solid transparent; transition: 0.2s; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+.project-card:hover { border-color: #007acc; transform: translateY(-2px); }
+.project-icon { font-size: 40px; margin-bottom: 10px; color: #aaa; }
+.del-proj-btn { position: absolute; top: 5px; right: 5px; background: #ff4444; color: white; border-radius: 50%; width: 24px; height: 24px; justify-content: center; padding: 0; display: none; font-size: 12px; }
+.project-card:hover .del-proj-btn { display: flex; }
+
+/* --- РАБОЧАЯ ОБЛАСТЬ (IDE) --- */
+#ide-screen { display: none; flex-grow: 1; height: calc(100vh - 50px); }
+.sidebar { width: 220px; background: #252526; border-right: 1px solid #000; display: flex; flex-direction: column; flex-shrink: 0; }
+.sidebar-header { padding: 10px; background: #333340; display: flex; justify-content: space-between; align-items: center; font-size: 12px; text-transform: uppercase; font-weight: bold; color: #aaa; }
+.file-list { flex-grow: 1; overflow-y: auto; list-style: none; padding: 0; margin: 0; }
+.file-item { padding: 8px 15px; cursor: pointer; display: flex; align-items: center; font-size: 14px; color: #ccc; border-left: 3px solid transparent; }
+.file-item:hover { background: #2a2d2e; }
+.file-item.active { background: #37373d; color: #fff; border-left-color: #007acc; }
+.file-item .del-file { margin-left: auto; color: #666; font-size: 12px; visibility: hidden; }
+.file-item:hover .del-file { visibility: visible; }
+
+/* --- ОБЛАСТЬ РЕДАКТОРА С НУМЕРАЦИЕЙ --- */
+.editor-wrapper { flex-grow: 1; display: flex; flex-direction: column; background: #1e1e1e; position: relative; overflow: hidden; }
+.tabs { background: #1e1e1e; height: 35px; display: flex; border-bottom: 1px solid #111; flex-shrink: 0; }
+.tab { padding: 0 20px; display: flex; align-items: center; background: #2d2d2d; font-size: 13px; color: #999; border-right: 1px solid #111; cursor: pointer; border-top: 2px solid transparent; }
+.tab.active { background: #1e1e1e; color: #fff; border-top-color: #007acc; }
+
+/* Контейнер для кода и номеров строк */
+.code-container { display: flex; flex-grow: 1; position: relative; height: 100%; }
+
+.line-numbers {
+    width: 40px;
+    background: #1e1e1e;
+    color: #6e7681;
+    text-align: right;
+    padding: 10px 5px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 21px; /* Важно: высота строки должна совпадать с textarea */
+    border-right: 1px solid #333;
+    user-select: none;
+    overflow: hidden;
+}
+
+textarea#code-editor {
+    flex-grow: 1;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border: none;
+    resize: none;
+    padding: 10px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 21px; /* Важно: высота строки должна совпадать */
+    white-space: pre;
+    overflow: auto; 
+    tab-size: 2;
+}
+
+/* --- ЖИВОЕ ПРЕВЬЮ --- */
+.preview-pane {
+    width: 0; /* Скрыто по умолчанию */
+    background: white;
+    border-left: 5px solid #28293d;
+    transition: width 0.3s ease;
+    flex-shrink: 0;
+}
+.preview-pane iframe { width: 100%; height: 100%; border: none; }
+.preview-pane.open { width: 50%; } /* Открыто наполовину */
+
+/* --- МОДАЛЬНЫЕ ОКНА --- */
+.modal-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000; }
+.modal { background: #252526; padding: 20px; border-radius: 8px; width: 300px; border: 1px solid #444; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.modal h3 { margin-top: 0; color: #fff; }
+.modal input, .modal select { width: 100%; padding: 8px; margin: 10px 0; background: #3c3c3c; border: 1px solid #555; color: white; border-radius: 4px; }
+.modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand"><span>⚡ WebIDE Pro</span></div>
+  
+  <div class="nav-controls" id="nav-controls-project" style="display:none;">
+    <button class="btn-toggle" id="btn-live" onclick="toggleLivePreview()">👁 Живое превью</button>
+    <button class="btn-success" onclick="runProject()">▶ В новой вкладке</button>
+    <button class="btn-dark" onclick="downloadCurrentFile()">⬇ Скачать файл</button>
+    <button class="btn-dark" onclick="closeProject()">🚪 Выход</button>
+  </div>
+
+  <div class="nav-controls" id="nav-controls-home">
+    <button class="btn-primary" onclick="openModal('create-project')">+ Создать проект</button>
+  </div>
+</div>
+
+<div id="project-screen">
+  <h2>Ваши проекты</h2>
+  <div class="project-list" id="project-list"></div>
+  <p style="color:#666; margin-top:50px;">Создайте проект, чтобы начать кодить.</p>
+</div>
+
+<div id="ide-screen">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span>Файлы</span>
+      <button class="btn-primary" style="padding: 0px 6px; font-size: 16px; height: 24px;" onclick="openModal('create-file')">+</button>
+    </div>
+    <ul class="file-list" id="file-list"></ul>
+  </div>
+
+  <div class="editor-wrapper">
+    <div class="tabs">
+      <div class="tab active" id="current-tab-name">index.html</div>
+    </div>
+    
+    <div class="code-container">
+        <div class="line-numbers" id="line-numbers">1</div>
+        <textarea id="code-editor" spellcheck="false" wrap="off"></textarea>
+    </div>
+  </div>
+
+  <div class="preview-pane" id="preview-pane">
+      <iframe id="preview-frame"></iframe>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h3 id="modal-title">Заголовок</h3>
+    <input type="text" id="modal-input" placeholder="Название...">
+    <select id="modal-select" style="display:none;">
+        <option value="html">HTML</option>
+        <option value="css">CSS</option>
+        <option value="js">JavaScript</option>
+    </select>
+    <div class="modal-buttons">
+      <button class="btn-dark" onclick="closeModal()">Отмена</button>
+      <button class="btn-primary" id="modal-confirm">Создать</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* --- ХРАНИЛИЩЕ ДАННЫХ --- */
+const STORAGE_KEY = 'web_ide_pro_data';
+let data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || { projects: {} };
+let currentProjectId = null;
+let currentFileId = null;
+let isLivePreview = false;
+
+// Шаблоны
+const TEMPLATES = {
+    html: '<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <title>App</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <div class="container">\n    <h1>Привет, мир!</h1>\n    <p>Начни кодить справа ➜</p>\n    <button id="btn">Нажми меня</button>\n  </div>\n  <script src="script.js"><\/script>\n</body>\n</html>',
+    css: 'body {\n  background: #1e1e2f;\n  color: white;\n  font-family: sans-serif;\n  display: flex;\n  justify-content: center;\n  align-items: center;\n  height: 100vh;\n  margin: 0;\n}\n.container {\n  text-align: center;\n  background: #2c2c3e;\n  padding: 40px;\n  border-radius: 12px;\n  box-shadow: 0 10px 20px rgba(0,0,0,0.3);\n}\nbutton {\n  background: #007acc;\n  color: white;\n  border: none;\n  padding: 10px 20px;\n  border-radius: 5px;\n  cursor: pointer;\n  margin-top: 15px;\n}\nbutton:hover {\n  background: #005f9e;\n}',
+    js: 'document.getElementById("btn").addEventListener("click", () => {\n  alert("Кнопка работает! 🚀");\n  console.log("Клик!");\n});'
+};
+
+/* --- СИСТЕМА ПРОЕКТОВ --- */
+function renderProjects() {
+    const list = document.getElementById('project-list');
+    list.innerHTML = '';
+    
+    if (Object.keys(data.projects).length === 0) return;
+
+    for (let id in data.projects) {
+        const p = data.projects[id];
+        const card = document.createElement('div');
+        card.className = 'project-card';
+        card.onclick = (e) => { if(!e.target.classList.contains('del-proj-btn')) openProject(id); };
+        card.innerHTML = `
+            <button class="del-proj-btn" onclick="deleteProject('${id}')">✖</button>
+            <div class="project-icon">📦</div>
+            <div class="project-name">${p.name}</div>
+        `;
+        list.appendChild(card);
+    }
+}
+
+function createProject(name) {
+    const id = 'proj_' + Date.now();
+    data.projects[id] = {
+        name: name,
+        files: { 'index.html': TEMPLATES.html, 'style.css': TEMPLATES.css, 'script.js': TEMPLATES.js }
+    };
+    saveData();
+    renderProjects();
+    openProject(id);
+}
+
+function deleteProject(id) {
+    if(confirm('Удалить этот проект навсегда?')) {
+        delete data.projects[id];
+        saveData();
+        renderProjects();
+    }
+}
+
+/* --- РЕДАКТОР И ФУНКЦИОНАЛ --- */
+const editor = document.getElementById('code-editor');
+const lineNumbers = document.getElementById('line-numbers');
+
+// Синхронизация скролла номеров строк и текста
+editor.addEventListener('scroll', () => {
+    lineNumbers.scrollTop = editor.scrollTop;
+});
+
+// Обновление номеров строк
+function updateLineNumbers() {
+    const lines = editor.value.split('\n').length;
+    lineNumbers.innerHTML = Array(lines).fill(0).map((_, i) => i + 1).join('<br>');
+}
+
+// Авто-закрытие скобок и кавычек
+editor.addEventListener('keydown', function(e) {
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        document.execCommand('insertText', false, '  '); // 2 пробела вместо таба
+    }
+    
+    const pairs = { '(': ')', '[': ']', '{': '}', '"': '"', "'": "'" };
+    if (pairs[e.key]) {
+        e.preventDefault();
+        const start = this.selectionStart;
+        const end = this.selectionEnd;
+        const val = this.value;
+        const char = e.key;
+        const closeChar = pairs[char];
+        
+        this.value = val.substring(0, start) + char + closeChar + val.substring(end);
+        this.selectionStart = this.selectionEnd = start + 1;
+        updateLineNumbers();
+        handleInput();
+    }
+});
+
+function openProject(id) {
+    currentProjectId = id;
+    document.getElementById('project-screen').style.display = 'none';
+    document.getElementById('ide-screen').style.display = 'flex';
+    document.getElementById('nav-controls-home').style.display = 'none';
+    document.getElementById('nav-controls-project').style.display = 'flex';
+    
+    // Сброс превью
+    isLivePreview = false;
+    document.getElementById('preview-pane').className = 'preview-pane';
+    document.getElementById('btn-live').classList.remove('active');
+
+    renderFileList();
+    if(data.projects[id].files['index.html']) openFile('index.html');
+    else openFile(Object.keys(data.projects[id].files)[0]);
+}
+
+function closeProject() {
+    saveCurrentFile();
+    currentProjectId = null;
+    document.getElementById('project-screen').style.display = 'flex';
+    document.getElementById('ide-screen').style.display = 'none';
+    document.getElementById('nav-controls-home').style.display = 'flex';
+    document.getElementById('nav-controls-project').style.display = 'none';
+    renderProjects();
+}
+
+function renderFileList() {
+    const list = document.getElementById('file-list');
+    list.innerHTML = '';
+    const files = data.projects[currentProjectId].files;
+    
+    for (let filename in files) {
+        const li = document.createElement('li');
+        li.className = `file-item ${currentFileId === filename ? 'active' : ''}`;
+        li.innerHTML = `<span>📄 ${filename}</span><span class="del-file" onclick="deleteFile('${filename}', event)">✖</span>`;
+        li.onclick = (e) => { if(!e.target.classList.contains('del-file')) openFile(filename); };
+        list.appendChild(li);
+    }
+}
+
+function openFile(filename) {
+    if(currentFileId) saveCurrentFile();
+    currentFileId = filename;
+    editor.value = data.projects[currentProjectId].files[filename];
+    document.getElementById('current-tab-name').textContent = filename;
+    updateLineNumbers();
+    renderFileList();
+}
+
+function saveCurrentFile() {
+    if (currentProjectId && currentFileId) {
+        data.projects[currentProjectId].files[currentFileId] = editor.value;
+        saveData();
+    }
+}
+
+function handleInput() {
+    updateLineNumbers();
+    if (isLivePreview) {
+        // Дебаунс для оптимизации (обновляем не мгновенно, а через 300мс после паузы)
+        clearTimeout(window.previewTimeout);
+        window.previewTimeout = setTimeout(() => {
+            saveCurrentFile();
+            updatePreviewFrame();
+        }, 500);
+    }
+}
+editor.addEventListener('input', handleInput);
+
+/* --- УПРАВЛЕНИЕ ФАЙЛАМИ --- */
+function createFile(name, type) {
+    let filename = name;
+    if (type === 'html' && !filename.endsWith('.html')) filename += '.html';
+    if (type === 'css' && !filename.endsWith('.css')) filename += '.css';
+    if (type === 'js' && !filename.endsWith('.js')) filename += '.js';
+
+    if (data.projects[currentProjectId].files[filename]) return alert('Файл существует!');
+
+    data.projects[currentProjectId].files[filename] = TEMPLATES[type] || '';
+    saveData();
+    renderFileList();
+    openFile(filename);
+}
+
+function deleteFile(filename, e) {
+    e.stopPropagation();
+    if(confirm(`Удалить ${filename}?`)) {
+        delete data.projects[currentProjectId].files[filename];
+        saveData();
+        renderFileList();
+        if(currentFileId === filename) editor.value = '';
+    }
+}
+
+function downloadCurrentFile() {
+    const blob = new Blob([editor.value], {type:'text/plain'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = currentFileId;
+    link.click();
+}
+
+/* --- ЗАПУСК И ПРЕВЬЮ --- */
+function generateProjectBlobUrl() {
+    saveCurrentFile();
+    const files = data.projects[currentProjectId].files;
+    let indexHtml = files['index.html'];
+    if (!indexHtml) return null;
+
+    const blobUrls = {};
+    for (let name in files) {
+        if (name === 'index.html') continue;
+        let type = name.endsWith('.css') ? 'text/css' : 'application/javascript';
+        blobUrls[name] = URL.createObjectURL(new Blob([files[name]], { type }));
+    }
+
+    for (let name in blobUrls) {
+        const regex = new RegExp(`(['"])${name}(['"])`, 'g');
+        indexHtml = indexHtml.replace(regex, `$1${blobUrls[name]}$2`);
+    }
+    
+    return URL.createObjectURL(new Blob([indexHtml], { type: 'text/html' }));
+}
+
+function runProject() {
+    const url = generateProjectBlobUrl();
+    if (url) window.open(url, '_blank');
+    else alert('Нет index.html!');
+}
+
+function toggleLivePreview() {
+    isLivePreview = !isLivePreview;
+    const pane = document.getElementById('preview-pane');
+    const btn = document.getElementById('btn-live');
+    
+    if (isLivePreview) {
+        pane.classList.add('open');
+        btn.classList.add('active');
+        updatePreviewFrame();
+    } else {
+        pane.classList.remove('open');
+        btn.classList.remove('active');
+    }
+}
+
+function updatePreviewFrame() {
+    const url = generateProjectBlobUrl();
+    if (url) document.getElementById('preview-frame').src = url;
+}
+
+/* --- МОДАЛКИ И INIT --- */
+function saveData() { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+let currentModalAction = null;
+const modal = document.getElementById('modal-overlay');
+
+function openModal(action) {
+    currentModalAction = action;
+    modal.style.display = 'flex';
+    document.getElementById('modal-input').value = '';
+    
+    if (action === 'create-project') {
+        document.getElementById('modal-title').textContent = 'Новый проект';
+        document.getElementById('modal-select').style.display = 'none';
+    } else {
+        document.getElementById('modal-title').textContent = 'Новый файл';
+        document.getElementById('modal-select').style.display = 'block';
+    }
+}
+function closeModal() { modal.style.display = 'none'; }
+
+document.getElementById('modal-confirm').onclick = () => {
+    const val = document.getElementById('modal-input').value.trim();
+    if (!val) return;
+    if (currentModalAction === 'create-project') createProject(val);
+    else createFile(val, document.getElementById('modal-select').value);
+    closeModal();
+};
+
+renderProjects();
+</script>
+</body>
+</html>
